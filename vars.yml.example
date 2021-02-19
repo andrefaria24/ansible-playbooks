@@ -1,0 +1,7 @@
+---
+dc_ip: 192.168.1.2
+dc_name: dcmachine
+dc_fqdn: dcmachine.domain.com
+domain_name: domain.com
+domain_join_user: foo
+domain_join_user_pw: bar

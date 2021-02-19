@@ -1,0 +1,7 @@
+---
+- name: Update all CentOS hosts
+  hosts: centos
+
+  tasks:
+  - name: Upgrade all packages
+    yum: name=* state=latest

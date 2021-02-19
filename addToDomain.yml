@@ -1,0 +1,87 @@
+---
+- name: Add CentOS machines to FARIA.local domain
+  hosts: centos
+  become: yes
+  vars_files:
+    - ./vars.yml
+
+  tasks:
+  - name: Enable EPEL repo
+    yum:
+      name:
+        - epel-release
+
+  - name: Install required packages for AD integration
+    yum:
+      name:
+        - sssd
+        - realmd
+        - oddjob
+        - oddjob-mkhomedir
+        - adcli
+        - samba-common
+        - samba-common-tools
+        - krb5-workstation
+        - openldap-clients
+        - policycoreutils-python
+        - libselinux-python
+        - ntpdate
+        - ntp
+        - python-pip
+      state: present
+
+  - name: Install pexpect python module
+    pip:
+      name: pexpect  
+
+  - name: Add domain info to /etc/hosts
+    ansible.builtin.lineinfile:
+      path: /etc/hosts
+      line: '{{dc_ip}}	{{dc_fqdn}}	{{dc_name}}' 
+
+  - name: Replace resolv.conf file with appropriate template
+    template:
+      src: ./templates/resolv.conf.j2
+      dest: /etc/resolv.conf
+
+  - name: Check if machine is already a member of the domain
+    shell: /bin/bash -c "realm list | grep sssd"
+    register: realmd_bound
+    changed_when: false
+    ignore_errors: true
+
+  - name: Join domain
+    expect:
+      command: /bin/bash -c "/usr/sbin/realm join --user={{domain_join_user}} {{dc_fqdn}}"
+      responses:
+        Password for *: "{{ domain_join_user_pw }}"
+    when: realmd_bound.rc == 1
+
+  - name: Modify sssd.conf file to not use fully qualified domain names
+    ansible.builtin.lineinfile:
+      path: /etc/sssd/sssd.conf
+      regexp: '^use_fully_qualified_names ='
+      line: use_fully_qualified_names = False
+
+  - name: Modify fallback_homedir entry in sssd.conf to not user user's fqdn
+    ansible.builtin.lineinfile:
+      path: /etc/sssd/sssd.conf
+      regexp: '^fallback_homedir ='
+      line: fallback_homedir = /home/%u
+    notify:
+      - Restart sssd and reload daemon
+
+  - name: Add Sudoers AD group to sudoers file
+    ansible.builtin.lineinfile:
+      path: /etc/sudoers.d/sudoers
+      regexp: '^%Sudoers'
+      line: '%Sudoers    ALL=(ALL)       ALL'
+      create: yes
+
+  handlers:
+    - name: Restart sssd and reload daemon
+      systemd:
+        name: sssd
+        state: restarted
+        daemon_reload: yes
+
